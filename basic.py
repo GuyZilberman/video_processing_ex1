@@ -22,3 +22,4 @@ if __name__ == "__main__":
     # Print the updated matrix
     print("Updated Matrix:")
     print(matrix)
+    print("HI)
