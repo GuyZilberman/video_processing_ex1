@@ -6,8 +6,8 @@ from matplotlib import pyplot as plt
 
 
 # Replace ID1 and ID2 with your IDs.
-ID1 = '123456789'
-ID2 = '987654321'
+ID1 = '308339274'
+ID2 = '212235246'
 
 # Harris corner detector parameters - you may change them.
 K = 0.05
@@ -37,7 +37,7 @@ def bgr_image_to_rgb_image(bgr_image: np.ndarray) -> np.ndarray:
         image and in the third dimension, swap the first and last slices.
     """
     rgb_image = bgr_image.copy()
-    """INSERT YOUR CODE HERE."""
+    rgb_image = np.flip(rgb_image, axis=-1)
     return rgb_image
 
 
@@ -55,10 +55,7 @@ def black_and_white_image_to_tiles(arr: np.ndarray, nrows: int,
     Take inspiration from: https://stackoverflow.com/questions/16873441/form-a-big-2d-array-from-multiple-smaller-2d-arrays
     """
     h, w = arr.shape
-    """INSERT YOUR CODE HERE.
-    REPLACE THE RETURNED VALUE WITH YOUR OWN IMPLEMENTATION.
-    """
-    return np.random.uniform(size=((h//nrows) * (w //ncols), nrows, ncols))
+    return arr.reshape(h//nrows, nrows, -1, ncols).swapaxes(1, 2).reshape(-1, nrows, ncols)
 
 
 def image_tiles_to_black_and_white_image(arr: np.ndarray, h: int,
@@ -75,10 +72,7 @@ def image_tiles_to_black_and_white_image(arr: np.ndarray, h: int,
     Take inspiration from: https://stackoverflow.com/questions/16873441/form-a-big-2d-array-from-multiple-smaller-2d-arrays
     """
     n, nrows, ncols = arr.shape
-    """INSERT YOUR CODE HERE.
-    REPLACE THE RETURNED VALUE WITH YOUR OWN IMPLEMENTATION.
-    """
-    return np.random.uniform(size=(h, w))
+    return (arr.reshape(h // nrows, -1, nrows, ncols).swapaxes(1, 2).reshape(h, w))
 
 
 def test_tiles_functions(to_save: bool = False) -> None:
@@ -111,7 +105,6 @@ def test_tiles_functions(to_save: bool = False) -> None:
         plt.savefig(TEST_BLOCKS_FUNCTIONS_IMAGE)
     else:
         plt.show()
-
 
 def create_grad_x_and_grad_y(
         input_image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -147,11 +140,31 @@ def create_grad_x_and_grad_y(
         nof_color_channels = 3
         height, width, _ = input_image.shape
 
-    """INSERT YOUR CODE HERE.
-    REPLACE THE VALUES FOR Ix AND Iy WITH THE GRADIENTS YOU COMPUTED.
-    """
-    Ix = np.random.uniform(size=(height, width))
-    Iy = np.random.uniform(size=(height, width))
+    # If this is an RGB image, convert it to grayscale
+    if (nof_color_channels == 3):
+        gray_image = cv2.cvtColor(input_image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_image = input_image
+
+    # Shift image to the right
+    right_shifted_gray_image = np.zeros((height, width), dtype=np.float32)
+    right_shifted_gray_image[:, 1:] = gray_image[:, :-1]
+
+    # Calculate Ix - which is the difference
+    Ix = gray_image - right_shifted_gray_image
+
+
+    # Shift image down
+    down_shifted_gray_image = np.zeros((height, width), dtype=np.float32)
+    down_shifted_gray_image[1:, :] = gray_image[:-1, :]
+
+    # Calculate Iy - which is the difference
+    Iy = gray_image - down_shifted_gray_image
+
+    # Finally, set the first column of Ix to zero and the first row of Iy to zero
+    Ix[:, 0] = 0
+    Iy[0, :] = 0
+
     return Ix, Iy
 
 
@@ -181,11 +194,16 @@ def calculate_response_image(input_image: np.ndarray, K: float) -> np.ndarray:
     """
     # compute Ix and Iy
     Ix, Iy = create_grad_x_and_grad_y(input_image)
+    g = np.ones((5,5))
 
-    """INSERT YOUR CODE HERE.
-    REPLACE THE resonse_image WITH THE RESPONSE IMAGE YOU CALCULATED."""
+    Sxx = signal.convolve2d(np.square(Ix), g, mode='same')
+    Syy = signal.convolve2d(np.square(Iy), g, mode='same')
+    Sxy = signal.convolve2d(np.multiply(Ix, Iy), g, mode='same')
 
-    response_image = np.random.uniform(size=Ix.shape)
+    detM = np.multiply(Sxx, Syy) - np.square(Sxy)
+    traceM = Sxx + Syy
+
+    response_image = detM - K * np.square(traceM)
     return response_image
 
 
@@ -216,9 +234,38 @@ def our_harris_corner_detector(input_image: np.ndarray, K: float,
     ones where the image from (3) is larger than the threshold.
     """
     response_image = calculate_response_image(input_image, K)
-    """INSERT YOUR CODE HERE.
-    REPLACE THE output_image WITH THE BINARY MAP YOU COMPUTED."""
-    output_image = np.random.uniform(size=response_image.shape)
+
+    tiles = black_and_white_image_to_tiles(response_image, 25, 25)
+    for tile in tiles:
+        # find the index of the maximum value in the array
+        max_index = np.argmax(tile)
+
+        # convert the index into a tuple of indices for each dimension
+        max_indices = np.unravel_index(max_index, tile.shape)
+
+        # create a mask which is ones everywhere except for the max value in that tile
+        mask = np.ones_like(tile)
+        mask[max_indices] = 0
+
+        # convert mask to a boolean mask
+        mask = mask == 1
+
+        # set all the numbers except the max value to 0
+        tile[mask] = 0
+
+    # Get image dimensions
+    if len(input_image.shape) == 2:
+        # this is the case of a black and white image
+        height, width = input_image.shape
+
+    else:
+        # this is the case of an RGB image
+        height, width, _ = input_image.shape
+
+    image_back_from_tiles = image_tiles_to_black_and_white_image(tiles, height, width)
+    output_image = np.zeros_like(image_back_from_tiles)
+    output_image[image_back_from_tiles > threshold] = 1
+
     return output_image
 
 
